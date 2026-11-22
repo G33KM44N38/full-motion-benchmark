@@ -20,8 +20,9 @@ Un index de toutes les versions est aussi mis à jour : `https://results.full-mo
 | [`docs/dom/`](./docs/dom/) | Mesures DOM relevées sur le site d’origine |
 | [`assets/client-images/`](./assets/client-images/) | Images du client à utiliser exclusivement |
 | `site/` | C’est **là** que l’agent construit le projet Vite |
-| `verification/` | Rapports, checklist et captures de preuve de l’agent |
-| [`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml) | Build + déploiement Cloudflare Pages |
+| `verification/` | Journal, score, diffs, rapports de l’agent |
+| [`tools/evaluate.mjs`](./tools/evaluate.mjs) | Juge officiel : score /100 et code de sortie du prédicat |
+| [`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml) | Build, évaluation (non bloquante) et déploiement Cloudflare Pages |
 
 Le nom du projet Cloudflare Pages est configurable : variable de dépôt `CF_PAGES_PROJECT` (défaut `full-motion-benchmark`). La `base` Vite est lue depuis `VITE_BASE` / `BASE_PATH` et vaut `/` par défaut (pas de sous-chemin sur Cloudflare Pages).
 
@@ -41,7 +42,7 @@ Prérequis : le propriétaire du dépôt t’a ajouté comme **collaborateur** (
 
    > Lis `PROMPT.md` et exécute-le.
 
-3. L’agent doit travailler dans `site/` (projet Vite, HTML / CSS / JS vanilla) et déposer ses preuves dans `verification/`. Ne pas modifier le prompt, les captures de référence, les images client, ni le workflow.
+3. L’agent doit travailler dans `site/` (projet Vite, HTML / CSS / JS vanilla) et s’évaluer **tout seul** avec `cd tools && npm install && npx playwright install chromium && npm run evaluate`. Il décide qu’il a fini uniquement quand le prédicat de `PROMPT.md` est vrai (toutes les cases OK, score ≥ 85, pas d’écart structurel). Les preuves vont dans `verification/` (journal `decision-log.md`, `score.json`, diffs, `REPORT.md`). Ne pas modifier le prompt, `tools/`, les captures de référence, les images client, ni le workflow.
 
 4. Quand c’est terminé, commit **tout** (le site, `vite.config` avec la `base` configurable, la checklist, le rapport, les captures) et pousse la branche :
 
@@ -51,11 +52,24 @@ Prérequis : le propriétaire du dépôt t’a ajouté comme **collaborateur** (
    git push -u origin run/claude-opus
    ```
 
-5. La GitHub Action se lance toute seule. Dans l’onglet **Actions**, le résumé du job affiche l’URL. Un commentaire est aussi ajouté sur le commit. L’URL stable de la branche ressemble à :
+5. La GitHub Action se lance toute seule : elle reconstruit le site, relance `tools/evaluate` (sans bloquer le déploiement si le score est sous le seuil) et publie le site. Dans l’onglet **Actions**, le résumé du job affiche l’URL **et le score**. Un commentaire est aussi ajouté sur le commit. L’URL stable de la branche ressemble à :
 
    `https://run-claude-opus.full-motion-benchmark.pages.dev`
 
    (les `/` du nom de branche sont remplacés par des `-`).
+
+## Comment l’agent s’évalue
+
+Le prompt (`PROMPT.md`, section 4) est un run autonome façon poteto : l’agent fige un **prédicat de sortie** vérifiable, boucle (plus petit changement → `npm run evaluate` → commit si ça avance, sinon revert), tient un journal append-only, et s’arrête seulement quand le prédicat est vrai — ou devant une impasse réellement documentée. Un plateau n’est pas un arrêt.
+
+```bash
+cd tools
+npm install
+npx playwright install chromium
+npm run evaluate   # code 0 uniquement si le prédicat est vrai
+```
+
+Le score /100 de `verification/score.json` couvre la partie automatisable de la grille ci-dessous (les images du client étant différentes, le diff pixel masque les médias et s’appuie aussi sur les boîtes DOM de `docs/dom/`).
 
 ## Réglages à faire une fois (propriétaire du dépôt)
 
@@ -93,7 +107,7 @@ Pénalités : −10 par section P1 manquante ou réordonnée ; −15 si un asset
 
 ## Résultats
 
-La liste à jour est générée automatiquement après chaque run réussi (`runs.json` + `index.html` sur la branche `results`).
+La liste à jour est générée automatiquement après chaque run réussi (`runs.json` + `index.html` sur la branche `results`), avec le score d’auto-évaluation et l’état du prédicat.
 
 | Modèle | Branche | Date | Lien |
 |---|---|---|---|

@@ -77,6 +77,21 @@ INDEX_HTML = """<!DOCTYPE html>
 """
 
 
+def _maybe_number(value: str):
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return value
+
+
+def _maybe_bool(value: str):
+    if value is None or value == "":
+        return None
+    return str(value).strip().lower() in {"1", "true", "yes", "oui"}
+
+
 def slug_from_branch(branch: str) -> str:
     return branch.replace("/", "-")
 
@@ -104,11 +119,18 @@ def card_html(run: dict) -> str:
     branch = run.get("branch", "")
     sha = (run.get("commit") or "")[:7]
     date = run.get("date") or ""
+    score = run.get("score")
+    passed = run.get("predicate_passed")
+    if score is None:
+        score_html = "Score : n/d"
+    else:
+        mark = "prédicat OK" if passed else "prédicat KO"
+        score_html = f"Score {score}/100 · {mark}"
     return (
         f'<a class="card" href="{url}">'
         f'<p class="name">{name}</p>'
         f'<p class="meta">Branche <code>{branch}</code><br>'
-        f'{date} · {sha}</p>'
+        f'{date} · {sha}<br>{score_html}</p>'
         f'<p class="cta">Ouvrir le site →</p>'
         f"</a>"
     )
@@ -130,6 +152,9 @@ def main() -> None:
     parser.add_argument("--deployment-url", default="")
     parser.add_argument("--alias-url", default="")
     parser.add_argument("--repo", default="")
+    parser.add_argument("--score", default="")
+    parser.add_argument("--threshold", default="")
+    parser.add_argument("--predicate-passed", default="")
     args = parser.parse_args()
 
     dest = Path(args.dir)
@@ -146,6 +171,9 @@ def main() -> None:
         "deployment_url": args.deployment_url,
         "alias_url": args.alias_url or args.deployment_url,
         "repo": args.repo,
+        "score": _maybe_number(args.score),
+        "threshold": _maybe_number(args.threshold),
+        "predicate_passed": _maybe_bool(args.predicate_passed),
     }
 
     runs = load_runs(runs_path)

@@ -1,16 +1,19 @@
 {
-  "name": "pw",
+  "name": "full-motion-benchmark-tools",
   "version": "1.0.0",
-  "description": "",
+  "description": "Outils de capture et d'auto-\u00e9valuation du benchmark Full Motion",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "evaluate": "node evaluate.mjs",
+    "shoot": "node shoot.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "playwright": "^1.65.1"
+    "playwright": "^1.65.1",
+    "pixelmatch": "^5.3.0",
+    "sharp": "^0.33.5"
   }
 }

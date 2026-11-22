@@ -99,46 +99,93 @@ Fond général : quasi noir avec une **texture discrète** (motif sombre façon 
 - Le site comporte un mode d'édition caché (`/edit`, scripts `secret-edit`) : hors périmètre.
 
 
-## 4. Process obligatoire (dans cet ordre, sans sauter d'étape)
+## 4. Process obligatoire (run autonome, style poteto)
 
-### Étape 0 : captures de référence et carte de structure (AVANT d'écrire la moindre ligne du site)
-Le dépôt fournit déjà le kit officiel : captures dans `reference/` (JPEG, viewports 1440×900 et 390×844, premier écran + pleine page), spec dans `docs/structure-full-motion.md`, mesures DOM dans `docs/dom/`. Tu peux copier `reference/` vers `verification/evidence/reference/` plutôt que de recapturer le site en ligne. Tu dois quand même **ouvrir et regarder** chaque capture, et écrire `verification/STRUCTURE.md`. Recapturer https://full-motion.fr/ reste possible pour détecter une dérive : dans ce cas, **la capture du jour fait foi**.
-1. Installe Playwright dans un dossier outil : `npm i -D playwright pixelmatch pngjs && npx playwright install chromium`.
-2. Écris `tools/capture.mjs`. Il prend une base d'URL et une liste de pages, et produit pour chaque page **2 viewports : 1440×900 et 390×844** (mobile : `isMobile:true, hasTouch:true`, `deviceScaleFactor:1`). Pour chaque viewport, il fait une capture du premier écran **et** une capture pleine page. Avant de capturer : attends `networkidle` + 5 s (loader d'entrée), fais défiler toute la page par pas de 600 px pour déclencher le lazy-load, puis reviens en haut.
-3. Capture (ou copie) la **référence** dans `verification/evidence/reference/` pour ces URL : `/`, `/drone.html`, `/drone.html?page=equipment`, `/drone.html?page=team`, `/drone.html?page=contact`, `/drone.html?film=athena`, `/rental.html`, `/rental.html?item=whip-pan&lang=fr`, `/rental.html?item=vente`, `/rental.html?item=livraison`, `/rental.html?item=contact`.
-4. Ouvre et **regarde** chaque capture. Écris `verification/STRUCTURE.md` : pour chaque page, la liste ordonnée des sections avec leurs mesures (largeur du conteneur, colonnes, hauteurs, positions) relevées dans le DOM rendu via `page.evaluate` (`getBoundingClientRect`, `getComputedStyle` : `grid-template-columns`, `gap`, `font-size`, `color`, `background-color`, `border-radius`). Confronte-la à la spec de la section 3 et note les écarts éventuels (le site a pu évoluer : **la capture du jour fait foi**).
+Tu possèdes la condition de sortie. Tu la définis, puis tu avances jusqu'à elle **sans t'arrêter et sans demander à un humain**. Pas de question, pas d'attente d'avis, pas de « est-ce que je continue ? ».
 
-### Étape 1 : inventaire des images et mapping
+`tools/`, `reference/`, `docs/` et `.github/` sont **en lecture seule**. Il est interdit de les modifier, de contourner `tools/evaluate.mjs`, de baisser le seuil, ou de retoucher une capture de référence pour « passer ».
+
+### 4.1 Avant la première itération : figer le prédicat de sortie
+
+Écris le prédicat dans `verification/decision-log.md` (en tête de fichier) **avant** de modifier `site/`. Il doit être vérifiable par une commande, pas par une impression. Le prédicat officiel, à copier tel quel sauf si tu le rends *plus* strict (jamais moins) :
+
+> Toutes les cases de la checklist (P1 : H0–H5, D1–D4, R1–R5 et P2 : DE, DT, DC, DF, RP, RS, RD, RC) sont OK aux deux viewports 1440×900 et 390×844, **et** `npm run evaluate` (dans `tools/`) se termine avec le code 0, **et** le score global de `verification/score.json` est ≥ 85, **et** aucun écart structurel (section manquante, réordonnée, ou nombre de colonnes faux).
+
+Le juge officiel est `tools/evaluate.mjs`. Il construit ou sert `site/`, capture chaque page aux deux viewports, compare aux JPEG de `reference/` (diff pixel après redimensionnement, zones médias masquées — le diff brut sera élevé à cause des images client) et aux mesures de `docs/dom/`, puis écrit `verification/score.json` et les diffs dans `verification/diffs/`. Code de sortie 0 **uniquement** si le prédicat est vrai.
+
+Installer et lancer (depuis `tools/`) :
+
+```bash
+npm install
+npx playwright install chromium
+npm run evaluate
+```
+
+### 4.2 Étape 0 — lire le kit (avant d'écrire la moindre ligne du site)
+
+Le dépôt fournit déjà le kit officiel : captures dans `reference/` (JPEG, viewports 1440×900 et 390×844, premier écran + pleine page), spec dans `docs/structure-full-motion.md`, mesures DOM dans `docs/dom/`. Tu dois **ouvrir et regarder** chaque capture, et écrire `verification/STRUCTURE.md` (liste ordonnée des sections et mesures, confrontée à la section 3). Recapturer https://full-motion.fr/ reste possible pour détecter une dérive : dans ce cas, **la capture du jour fait foi**, mais tu ne remplaces pas `reference/` (lis-seulement).
+
+### 4.3 Étape 1 — inventaire des images et mapping
+
 1. Liste tout `assets/client-images/` (récursivement), avec pour chaque fichier : nom, format, dimensions, orientation (portrait, paysage, carré), poids. Regarde chaque image.
 2. Produis `verification/IMAGE-MAP.md`, un tableau `image → ID de section → rôle` (ex. `hero.jpg → D2 fond du hero`, `portrait-01.jpg → DT carte 1`, `affiche-03.jpg → H3 coverflow`). Respecte les **ratios** des emplacements : affiches portrait pour H3, visuels larges 24/11 pour D3, carrés pour DT, produits détourés sur fond clair pour R4/RP. Recadre avec `object-fit: cover` et `object-position` plutôt que de déformer.
-3. S'il n'y a pas assez d'images pour une grille, réutilise-les en rotation. Ne réduis jamais le nombre de cartes ou de colonnes, et signale-le dans le rapport.
+3. S'il n'y a pas assez d'images pour une grille, réutilise-les en rotation. Ne réduis jamais le nombre de cartes ou de colonnes, et signale-le dans le journal.
 
-### Étape 2 : construction
+### 4.4 Étape 2 — construction
+
 1. Commence par `src/tokens.css` (variables de la section 3.0 : thème sombre, thème clair Rental, rayons, conteneur 1440/48 px, breakpoint 760 px), puis les composants partagés (header D1/R1, footers H4/D4/R5, pastilles, sélecteur de langue), puis les pages P1 et enfin P2.
-2. Construis **section par section dans l'ordre de la checklist**, et compare-toi à la référence après chaque section, pas seulement à la fin.
-3. Desktop et mobile ensemble : chaque section a sa variante ≤ 760 px **telle que décrite**. Les variantes mobiles changent l'ordre ou la structure : inversion Rental/Drone sur l'accueil, header sur 2 lignes, pas de hero vidéo en mobile sur Drone mais recherche + Filters, menu Rental réduit à « Menu ».
-4. Les animations listées (loader, coverflow, carrousel, survols, header au scroll) sont reproduites, avec un fallback `prefers-reduced-motion`.
+2. Desktop et mobile ensemble : chaque section a sa variante ≤ 760 px **telle que décrite**. Les variantes mobiles changent l'ordre ou la structure : inversion Rental/Drone sur l'accueil, header sur 2 lignes, pas de hero vidéo en mobile sur Drone mais recherche + Filters, menu Rental réduit à « Menu ».
+3. Les animations listées (loader, coverflow, carrousel, survols, header au scroll) sont reproduites, avec un fallback `prefers-reduced-motion`.
+4. Construis **section par section dans l'ordre de la checklist**. Chaque unité est une expérience que tu vérifies avant de passer à la suivante, au lieu de tout tester à la fin.
 
-### Étape 3 : boucle de vérification VISUELLE
-1. Lance `$create-verification-skill` pour générer `verification/.agents/skills/verify-<projet>/`. Dans ce projet, la « surface » est un site statique : le skill doit couvrir **Launch** (depuis `site/` : `npm run dev -- --port 5173 --strictPort`, prêt quand `http://localhost:5173/` répond 200 **et** que la page rend ses images), **Doctor** (port 5173 bien détenu par notre processus, build à jour), **Drive** = `tools/capture.mjs` lancé sur `http://localhost:5173` avec **exactement** les mêmes pages, viewports et attentes que la référence, **Evidence** = `verification/evidence/build/` + `verification/evidence/diff/`, et **Cleanup** (arrêter le serveur qu'on a lancé, conserver `verification/evidence/`). Dans le feature map, une « feature » = une page à vérifier (accueil, drone-work, rental, etc.). Pas de tests fonctionnels.
-2. Écris `tools/compare.mjs`. Pour chaque paire référence/build et chaque viewport :
-   - un **montage côte à côte** (référence | build) → `verification/evidence/side-by-side/` ;
-   - un **diff pixel** avec pixelmatch (seuil 0.1) → `verification/evidence/diff/`, avec le pourcentage de pixels différents ;
-   - un **diff de structure** : liste ordonnée des blocs de premier niveau (tag, position y, largeur, hauteur, colonnes de grille) pour la référence et pour le build, avec les écarts de plus de 5 % signalés.
-   Rappel : le diff pixel sera élevé à cause des images différentes. Il sert à repérer les **décalages de blocs** (positions, hauteurs, colonnes), pas à juger les images. Le jugement final se fait **section par section** sur le montage côte à côte.
-3. Pour chaque ID de la checklist, note **OK / KO + la raison** dans `verification/CHECKLIST.md`. Corrige tous les KO, relance `$verify-<projet>` et recompare.
-4. **Maximum 5 itérations.** Arrête-toi avant si tous les P1 sont OK et qu'aucun P2 n'est KO. Après chaque itération, garde les captures dans `verification/evidence/iter-<n>/`.
-5. Interdit : affaiblir la référence, retirer une section pour « passer », ou déclarer OK sans capture qui le prouve.
+### 4.5 Boucle : le plus petit changement justifié par la preuve
+
+À chaque itération, dans cet ordre :
+
+1. Fais le **plus petit changement** que la preuve justifie (une section, un espacement, un point de grille — pas un refactor « au cas où »).
+2. Lance `npm run evaluate` dans `tools/`. Lis `verification/score.json` et les diffs / montages côte à côte. Le verdict vient de l'artefact, pas d'une auto-déclaration.
+3. Si le prédicat a avancé (score en hausse, ou une case KO devenue OK, sans régression ailleurs) : **commit** le changement.
+4. Si ça n'a pas aidé : **revert** (y compris les « ça pourrait aider »). Ne laisse pas un changement inutile dans l'arbre.
+5. Ajoute **une ligne** à `verification/decision-log.md` (journal append-only : on n'efface et on ne réécrit jamais une ligne déjà écrite). Colonnes : `ts` (ISO 8601), `itération`, `décision` (ce qui a changé), `pourquoi`, `preuve` (chemin vers un diff, un montage, un SHA de commit — un pointeur, pas un paragraphe), `score avant → après`, `résultat` (`conservé`, `revert`, état du prédicat).
+
+Un plateau n'est pas un arrêt : change d'approche (autre découpage, autre façon de poser la grille, reprise d'une section depuis la capture de référence) et continue. N'abaisse jamais le prédicat pour déclarer victoire.
+
+### 4.6 Quand s'arrêter
+
+Arrête-toi seulement quand :
+
+- le prédicat est **vrai** (evaluate code 0), ou
+- tu documentes une **impasse réelle** dans le journal et dans `verification/REPORT.md` : ce qui bloque, les approches déjà tentées, pourquoi la prochaine expérience n'a plus de levier. Une impasse n'est pas « je n'ai plus d'idée au bout de cinq essais ».
+
+### 4.7 Passe de relecture finale
+
+Avant de rendre le travail :
+
+1. Relis le journal : chaque ligne doit correspondre à une vraie décision, et chaque preuve doit exister et montrer ce que la ligne affirme. Un oubli se corrige par **une nouvelle ligne** qui reprend les faits, jamais en éditant l'historique.
+2. Si tu peux lancer un sous-agent d'un **autre modèle** (autre fournisseur que celui qui a fait le travail), fais-le relire le journal et les captures / diffs. Ce n'est pas un second chantier : il signale preuves faibles, vérifications sautées, choix risqués. Consigne le résultat en fin de `verification/REPORT.md` (« Relu par <modèle> », puis les alertes ou « aucune alerte »). Si tu ne peux pas, fais cette relecture toi-même et dis-le clairement.
+
+### 4.8 Rapport final
+
+Écris `verification/REPORT.md` avec au minimum :
+
+- le prédicat de sortie (tel que figé au départ) ;
+- le nombre d'itérations, ce qui a été conservé, ce qui a été revert ;
+- l'état final du prédicat (vrai / faux, score, cases encore KO, écarts structurels) ;
+- des pointeurs vers les montages côte à côte (`verification/evidence/side-by-side/`) et les diffs (`verification/diffs/`) ;
+- les images manquantes ou réutilisées, et ce qui n'a pas pu être vérifié (notamment les animations, partiellement heuristiques dans evaluate).
 
 ## 5. Livrables
+
 - Le projet Vite complet **dans `site/`**, lancé par `npm install && npm run dev`, plus `npm run build` qui passe sans erreur (la `base` Vite est lue depuis `VITE_BASE` / `BASE_PATH`, défaut `/`).
 - `verification/STRUCTURE.md` (étape 0), `verification/IMAGE-MAP.md` (étape 1).
-- `verification/evidence/reference/`, `verification/evidence/build/`, `verification/evidence/side-by-side/`, `verification/evidence/diff/`, `verification/evidence/iter-<n>/`.
-- `verification/CHECKLIST.md` : tableau `ID | Page | Desktop OK/KO | Mobile OK/KO | % diff pixel | Remarque`.
-- `verification/.agents/skills/verify-<projet>/` généré et exécuté au moins une fois.
-- `verification/RAPPORT.md` : écarts restants assumés et pourquoi, nombre d'itérations, durée approximative, images manquantes ou réutilisées, et ce qui n'a pas pu être vérifié.
+- `verification/decision-log.md` (prédicat figé + une ligne par itération).
+- `verification/score.json`, `verification/diffs/`, `verification/evidence/build/`, `verification/evidence/side-by-side/` (produits par `tools/evaluate`).
+- `verification/CHECKLIST.md` : tableau `ID | Page | Desktop OK/KO | Mobile OK/KO | % diff pixel masqué | Remarque`, aligné sur `score.json` (pas de OK sans preuve).
+- `verification/REPORT.md` : voir 4.8.
 
-## 6. Grille de notation (/100, remplie par l'évaluateur, pas par le modèle)
+## 6. Grille de notation (/100)
+
+`tools/evaluate` calcule un score aligné sur cette grille pour tout ce qui est automatisable (structure, visuel masqué, responsive, images, plus des heuristiques pour les animations, la présence du journal, et le code). C'est ce score, et lui seul, qui décide du prédicat de sortie. L'évaluateur humain peut ensuite ajuster les critères non automatisables, sans que le modèle y touche.
 
 | Critère | Points | Comment noter |
 |---|---|---|

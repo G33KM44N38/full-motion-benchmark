@@ -67,6 +67,33 @@ jobs:
             exit 1
           fi
 
+      - name: Visual self-evaluation
+        id: evaluate
+        continue-on-error: true
+        working-directory: tools
+        env:
+          EVALUATE_SKIP_BUILD: "1"
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+          npx playwright install --with-deps chromium
+          set +e
+          npm run evaluate
+          code=$?
+          set -e
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          if [ -f ../verification/score.json ]; then
+            python3 emit-score-outputs.py ../verification/score.json
+          else
+            echo "score=" >> "$GITHUB_OUTPUT"
+            echo "threshold=" >> "$GITHUB_OUTPUT"
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::verification/score.json introuvable après evaluate."
+          fi
+
       - name: Ensure Cloudflare Pages project exists
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -113,6 +140,18 @@ jobs:
             else
               echo "- Statut du déploiement : \`${OUTCOME:-skipped}\`"
             fi
+            echo ""
+            echo "## Score d'auto-évaluation"
+            echo ""
+            if [ -n "${{ steps.evaluate.outputs.score }}" ]; then
+              echo "- **Score :** ${{ steps.evaluate.outputs.score }}/100 (seuil ${{ steps.evaluate.outputs.threshold }})"
+              echo "- **Prédicat :** ${{ steps.evaluate.outputs.passed }}"
+              echo "- Code de sortie evaluate : ${{ steps.evaluate.outputs.exit_code }}"
+            else
+              echo "- L'évaluation n'a pas produit de score (voir le log de l'étape Visual self-evaluation)."
+            fi
+            echo ""
+            echo "Cette étape ne bloque pas le déploiement."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment deployment URL on the commit
@@ -129,6 +168,7 @@ jobs:
           - **URL stable (alias de branche) :** ${ALIAS_URL:-$DEPLOY_URL}
           - Branche : \`${{ github.ref_name }}\`
           - Commit : \`${{ github.sha }}\`
+          - **Score :** ${{ steps.evaluate.outputs.score }}/100 (prédicat : ${{ steps.evaluate.outputs.passed }})
 
           Index de tous les runs : https://results.${CF_PAGES_PROJECT}.pages.dev
           MD
@@ -167,7 +207,10 @@ jobs:
             --commit "${{ github.sha }}" \
             --deployment-url "$DEPLOY_URL" \
             --alias-url "${ALIAS_URL:-}" \
-            --repo "${{ github.repository }}"
+            --repo "${{ github.repository }}" \
+            --score "${{ steps.evaluate.outputs.score }}" \
+            --threshold "${{ steps.evaluate.outputs.threshold }}" \
+            --predicate-passed "${{ steps.evaluate.outputs.passed }}"
 
           git -C "$WORK" add runs.json index.html
           if git -C "$WORK" diff --cached --quiet; then
