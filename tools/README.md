@@ -24,3 +24,6 @@ npm run evaluate
 
 - `shoot.js` : script Playwright qui a produit les captures et les mesures du site d'origine. Les livrables officiels sont déjà dans `reference/` (JPEG) et `docs/dom/`.
 - `update-runs-index.py` : utilisé par la CI après un déploiement. Met à jour `runs.json` (y compris le score) et l'`index.html` sur la branche `results`.
+
+- `pages-alias.py` : calcule l'alias de branche Cloudflare Pages (et l'URL avec `--url`).
+

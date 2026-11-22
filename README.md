@@ -4,9 +4,25 @@ Dépôt de comparaison de modèles / agents de code (Codex, Claude Code, etc.) :
 
 On juge la **fidélité visuelle**, pas les fonctionnalités. Le prompt est identique pour tout le monde : [`PROMPT.md`](./PROMPT.md). La grille de notation est à la fin de ce prompt.
 
-Quand un ami pousse sa branche `run/<modele>`, GitHub Actions construit le site et le déploie sur **Cloudflare Pages**. Tu obtiens un lien direct, du type :
+## Lancer en une commande
 
-`https://run-claude-opus.full-motion-benchmark.pages.dev`
+Après avoir cloné le dépôt (et avoir le droit de **push** — un fork ne suffit pas), ouvre-le avec l’agent et lance :
+
+- **Claude Code** : `/benchmark`
+- **Cursor** : `/benchmark`
+- **Codex** : `$benchmark`
+- **Autre agent** : « Lis `AGENTS.md` et lance le benchmark »
+
+L’agent ne te pose pas de question. Il crée une branche `run/<modele>-<yyyymmdd-hhmm>` à partir de `main` (heure d’Europe/Paris), installe l’outil d’évaluation, suit [`PROMPT.md`](./PROMPT.md) tout seul jusqu’au prédicat de sortie, commit, pousse, puis t’affiche :
+
+- l’URL Cloudflare, du type `https://<alias>.full-motion-benchmark.pages.dev` (alias : minuscules, caractères spéciaux et `/` remplacés par `-`, coupé à 28 caractères — calculé par `python3 tools/pages-alias.py --url <branche>`) ;
+- le lien vers le workflow GitHub Actions de cette branche.
+
+Le détail de la procédure est dans [`AGENTS.md`](./AGENTS.md) (Claude lit aussi [`CLAUDE.md`](./CLAUDE.md)).
+
+Quand la branche `run/…` est poussée, GitHub Actions construit le site et le déploie sur **Cloudflare Pages**. Tu obtiens un lien direct, du type :
+
+`https://run-claude-opus-20261122-200.full-motion-benchmark.pages.dev`
 
 Un index de toutes les versions est aussi mis à jour : `https://results.full-motion-benchmark.pages.dev` (après le premier run).
 
@@ -14,7 +30,8 @@ Un index de toutes les versions est aussi mis à jour : `https://results.full-mo
 
 | Chemin | Rôle |
 |---|---|
-| [`PROMPT.md`](./PROMPT.md) | Prompt à donner tel quel à l’agent |
+| [`AGENTS.md`](./AGENTS.md) / [`CLAUDE.md`](./CLAUDE.md) | Lancement autonome (`/benchmark`, `$benchmark`) |
+| [`PROMPT.md`](./PROMPT.md) | Prompt à exécuter de bout en bout |
 | [`docs/structure-full-motion.md`](./docs/structure-full-motion.md) | Spec structurelle du site d’origine |
 | [`reference/`](./reference/) | 48 captures de référence (bureau + mobile, premier écran + page entière) |
 | [`docs/dom/`](./docs/dom/) | Mesures DOM relevées sur le site d’origine |
@@ -30,12 +47,14 @@ Le nom du projet Cloudflare Pages est configurable : variable de dépôt `CF_PAG
 
 Prérequis : le propriétaire du dépôt t’a ajouté comme **collaborateur** (droit de push). Un simple fork ne suffit pas : les secrets Cloudflare ne sont pas disponibles sur les forks, donc la CI ne pourra pas déployer.
 
-1. Clone le dépôt et crée une branche à ton nom de modèle (un run = une branche) :
+Le plus simple : clone, ouvre le dépôt avec l’agent, et utilise [Lancer en une commande](#lancer-en-une-commande). Les étapes manuelles restent possibles :
+
+1. Clone le dépôt (la branche de run sera créée par l’agent, ou à la main) :
 
    ```bash
    git clone https://github.com/G33KM44N38/full-motion-benchmark.git
    cd full-motion-benchmark
-   git checkout -b run/claude-opus   # ou run/codex, run/claude-code, etc.
+   # sinon, à la main : git checkout -b run/<modele>-<yyyymmdd-hhmm>
    ```
 
 2. Ouvre le dépôt avec l’agent, puis soit tu colles le contenu de `PROMPT.md`, soit tu lui dis :
@@ -54,7 +73,7 @@ Prérequis : le propriétaire du dépôt t’a ajouté comme **collaborateur** (
 
 5. La GitHub Action se lance toute seule : elle reconstruit le site, relance `tools/evaluate` (sans bloquer le déploiement si le score est sous le seuil) et publie le site. Dans l’onglet **Actions**, le résumé du job affiche l’URL **et le score**. Un commentaire est aussi ajouté sur le commit. L’URL stable de la branche ressemble à :
 
-   `https://run-claude-opus.full-motion-benchmark.pages.dev`
+   `https://run-claude-opus-20261122-200.full-motion-benchmark.pages.dev`
 
    (les `/` du nom de branche sont remplacés par des `-`).
 
