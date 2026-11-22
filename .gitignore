@@ -1,0 +1,20 @@
+# Dependencies and build output (the Vite app lives in site/)
+node_modules/
+dist/
+site/dist/
+site/.vite/
+.vite/
+
+# OS / editor
+.DS_Store
+._*
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Logs and local env
+*.log
+.env
+.env.*
+!.env.example

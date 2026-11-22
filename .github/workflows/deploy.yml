@@ -1,0 +1,182 @@
+name: Deploy run
+
+on:
+  push:
+    branches:
+      - "run/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: deploy-${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build and deploy to Cloudflare Pages
+    runs-on: ubuntu-latest
+    env:
+      CF_PAGES_PROJECT: ${{ vars.CF_PAGES_PROJECT || 'full-motion-benchmark' }}
+      BASE_PATH: /
+      VITE_BASE: /
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check that site/ is a Vite project
+        run: |
+          if [ ! -f site/package.json ]; then
+            echo "::error::site/package.json est introuvable. L'agent doit construire le projet Vite dans le dossier site/ (voir PROMPT.md) avant de pousser une branche run/**."
+            exit 1
+          fi
+
+      - name: Check Cloudflare secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          missing=0
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::Secret CLOUDFLARE_API_TOKEN manquant. Ajoute-le dans Settings > Secrets and variables > Actions (permission Cloudflare Pages: Edit). Les forks n'y ont pas accès : il faut un accès en push sur ce dépôt (collaborateur)."
+            missing=1
+          fi
+          if [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::Secret CLOUDFLARE_ACCOUNT_ID manquant. Ajoute-le dans Settings > Secrets and variables > Actions."
+            missing=1
+          fi
+          exit "$missing"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install and build
+        working-directory: site
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+          npm run build
+          if [ ! -d dist ]; then
+            echo "::error::site/dist est introuvable après npm run build. Vérifie que le projet Vite écrit bien vers dist/."
+            exit 1
+          fi
+
+      - name: Ensure Cloudflare Pages project exists
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set +e
+          output="$(npx --yes wrangler@4 pages project create "$CF_PAGES_PROJECT" --production-branch=main 2>&1)"
+          status=$?
+          printf '%s\n' "$output"
+          if [ "$status" -ne 0 ]; then
+            if printf '%s\n' "$output" | grep -qiE 'already exists|already been created|duplicate project|already used'; then
+              echo "Le projet Pages « $CF_PAGES_PROJECT » existe déjà, on continue."
+            else
+              echo "::error::Impossible de créer le projet Cloudflare Pages « $CF_PAGES_PROJECT »."
+              exit "$status"
+            fi
+          fi
+
+      - name: Deploy to Cloudflare Pages
+        id: deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy site/dist --project-name=${{ env.CF_PAGES_PROJECT }} --branch=${{ github.ref_name }}
+
+      - name: Job summary
+        if: always()
+        env:
+          DEPLOY_URL: ${{ steps.deploy.outputs.deployment-url }}
+          ALIAS_URL: ${{ steps.deploy.outputs.pages-deployment-alias-url }}
+          OUTCOME: ${{ steps.deploy.outcome }}
+        run: |
+          {
+            echo "## Déploiement Cloudflare Pages"
+            echo ""
+            echo "- Branche : \`${{ github.ref_name }}\`"
+            echo "- Commit : \`${{ github.sha }}\`"
+            echo "- Projet : \`$CF_PAGES_PROJECT\`"
+            if [ "$OUTCOME" = "success" ]; then
+              echo "- **URL de déploiement :** $DEPLOY_URL"
+              echo "- **URL stable (alias de branche) :** ${ALIAS_URL:-$DEPLOY_URL}"
+              echo "- Index de tous les runs : https://results.${CF_PAGES_PROJECT}.pages.dev"
+            else
+              echo "- Statut du déploiement : \`${OUTCOME:-skipped}\`"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment deployment URL on the commit
+        if: success() && steps.deploy.outputs.deployment-url != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEPLOY_URL: ${{ steps.deploy.outputs.deployment-url }}
+          ALIAS_URL: ${{ steps.deploy.outputs.pages-deployment-alias-url }}
+        run: |
+          body="$(cat <<MD
+          ## Déploiement Cloudflare Pages
+
+          - **URL de déploiement :** ${DEPLOY_URL}
+          - **URL stable (alias de branche) :** ${ALIAS_URL:-$DEPLOY_URL}
+          - Branche : \`${{ github.ref_name }}\`
+          - Commit : \`${{ github.sha }}\`
+
+          Index de tous les runs : https://results.${CF_PAGES_PROJECT}.pages.dev
+          MD
+          )"
+          gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" -f body="$body"
+
+      - name: Update and publish runs index
+        if: success()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DEPLOY_URL: ${{ steps.deploy.outputs.deployment-url }}
+          ALIAS_URL: ${{ steps.deploy.outputs.pages-deployment-alias-url }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          WORK="${RUNNER_TEMP}/results-index"
+          rm -rf "$WORK"
+          git fetch origin results --depth 1 || true
+          if git show-ref --verify --quiet refs/remotes/origin/results; then
+            git worktree add -B results "$WORK" origin/results
+          else
+            git worktree add --detach "$WORK"
+            git -C "$WORK" checkout --orphan results
+            # Empty the orphan branch: keep only .git, drop the run checkout files.
+            find "$WORK" -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+          fi
+
+          python3 "${{ github.workspace }}/tools/update-runs-index.py" \
+            --dir "$WORK" \
+            --branch "${{ github.ref_name }}" \
+            --commit "${{ github.sha }}" \
+            --deployment-url "$DEPLOY_URL" \
+            --alias-url "${ALIAS_URL:-}" \
+            --repo "${{ github.repository }}"
+
+          git -C "$WORK" add runs.json index.html
+          if git -C "$WORK" diff --cached --quiet; then
+            echo "Index inchangé."
+          else
+            git -C "$WORK" commit -m "chore: record ${{ github.ref_name }} @ ${{ github.sha }}"
+            git -C "$WORK" push origin HEAD:results
+          fi
+
+          npx --yes wrangler@4 pages deploy "$WORK" \
+            --project-name="$CF_PAGES_PROJECT" \
+            --branch=results
